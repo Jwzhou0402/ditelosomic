@@ -3,7 +3,7 @@
 bsub -J fastp -n 8 -o 01_index-%J.out -e 01_index-%J.err -R span[hosts=1] "bwa index -a bwtsw wheat.CSGL.fa"
 
 #####02_qc
-fastqc -o /public/home/jingwzhou/Data/CHIP_seq/H3K4/QC_after/trimmomatic/ /public/home/jingwzhou/Data/CHIP_seq/H3K4/QC_after/trimmomatic/*paired.fq.gz;\
+fastqc -o ~/CHIP_seq/H3K4/QC_after/trimmomatic/ ~/CHIP_seq/H3K4/QC_after/trimmomatic/*paired.fq.gz;\
 
 for sample in ./*_1.fq.gz; do
 index=$(basename $sample |sed 's/_1.fq.gz//')
@@ -44,9 +44,9 @@ for sample in ./*_sort_dedupilcate.bam; do
 index=$(basename $sample |sed 's/_sort_dedupilcate.bam//')
 prefix=$(dirname $sample)
 
-bsub -J cnvnator -n 10 -o cnvnator-${index}_2000-%J.out -e cnvnator-${index}_2000-%J.err -R span[hosts=1] -q normal "cnvnator -genome /public/home/jingwzhou/Data/DNA_seq/12_CNV/split/wheat.CSGL.fa -root ${index}_2000.root -tree /public/home/jingwzhou/Data/DNA_seq/11_CALLSNP/06_rmdup/${index}_final.bam;\
-cnvnator -genome /public/home/jingwzhou/Data/DNA_seq/12_CNV/split/wheat.CSGL.fa -root ${index}_2000.root -his 2000 -d /public/home/jingwzhou/Data/DNA_seq/12_CNV/split;\
-cnvnator cnvnator -genome /public/home/jingwzhou/Data/DNA_seq/12_CNV/split/wheat.CSGL.fa -root ${index}_2000.root -stat 2000;\
+bsub -J cnvnator -n 10 -o cnvnator-${index}_2000-%J.out -e cnvnator-${index}_2000-%J.err -R span[hosts=1] -q normal "cnvnator -genome ~/DNA_seq/12_CNV/split/wheat.CSGL.fa -root ${index}_2000.root -tree ~/DNA_seq/11_CALLSNP/06_rmdup/${index}_final.bam;\
+cnvnator -genome ~/DNA_seq/12_CNV/split/wheat.CSGL.fa -root ${index}_2000.root -his 2000 -d ~/DNA_seq/12_CNV/split;\
+cnvnator cnvnator -genome ~/DNA_seq/12_CNV/split/wheat.CSGL.fa -root ${index}_2000.root -stat 2000;\
 cnvnator -root ${index}_2000.root -eval 2000 > ${index}_2000.eval.ratio;\
 cnvnator -root ${index}_2000.root -partition 2000;\
 cnvnator -root ${index}_2000.root  -call 2000 > ${index}_2000.cnv;\
@@ -54,7 +54,7 @@ cnvnator2VCF.pl ${index}_2000.cnv > ${index}_2000.cnv.vcf"
 done
 
 ###04.2_mosdepth
-for sample in /public/home/jingwzhou/Data/DNA_seq/03_rmdu/*_dedupilcate.bam; do
+for sample in ~/DNA_seq/03_rmdu/*_dedupilcate.bam; do
 
 index=$(basename $sample |sed 's/_dedupilcate.bam//')
 prefix=$(dirname $sample)
@@ -126,7 +126,7 @@ module load MEME/5.0.5
 
 bsub -J meme -n 8 -o motif_fimo%J.out -e motif_fimo%J.err -R span[hosts=1] -q smp "meme ../BreakPoint_1kb.fa  -dna -oc ./1000000_zoops_12_22 -nostatus -mod zoops -evt 0.05 -nmotifs 10 -minw 12 -maxw 22 -revcomp -maxsize 1000000"
 
-bsub -J fimo -n 8 -o motif_fimo%J.out -e motif_fimo%J.err -R span[hosts=1] -q smp "fimo -oc ./fimo/ ./meme.txt /public/home/jingwzhou/genome/CSGL/wheat.CSGL.fa"
+bsub -J fimo -n 8 -o motif_fimo%J.out -e motif_fimo%J.err -R span[hosts=1] -q smp "fimo -oc ./fimo/ ./meme.txt ~/CSGL/wheat.CSGL.fa"
 
 bsub -J 1Mb -n 3 -o %J.out -e %J.err -R span[hosts=1] "perl ./DNA_bed2-1Mb_wheat_CSGL.pl ./output_MEME-1.bed output_MEME-1_1Mb.txt;\
 perl ./DNA_bed2-1Mb_wheat_CSGL.pl ./output_MEME-2.bed output_MEME-2.Mb.txt;\
@@ -156,14 +156,14 @@ sort -k1,1 -k2,2n Arm_random_200_10kb.bed > sorted_Arm_random_200_10kb.bed
 bedtools intersect -a ./sorted_Arm_random_200_10kb.bed -b ./wheat.CSGL.APR-DR-MR.bed  -wao > Arm_random_200_10kb_APR-DR-MR.txt
 
 ######Non-B form DNA freeenergy
-bsub  -J samtools -n 1 -o getfasta.out -e getfasta.err -R span[hosts=1] -q q2680v2 "bedtools getfasta -fi /public/home/jingwzhou/genome/CSGL/wheat.CSGL.fa -bed ./APR-DR-MR_armrandom_200_1Kb.bed > ./APR-DR-MR_armrandom_200.fasta;\
+bsub  -J samtools -n 1 -o getfasta.out -e getfasta.err -R span[hosts=1] -q q2680v2 "bedtools getfasta -fi ~/CSGL/wheat.CSGL.fa -bed ./APR-DR-MR_armrandom_200_1Kb.bed > ./APR-DR-MR_armrandom_200.fasta;\
 RNAfold --noGU --noconv --noPS -p -g < ./APR-DR-MR_armrandom_200.fasta > APR-DR-MR_armrandom_200.Energy.out;\
 rm *dp.ps"
 
-bsub  -J samtools -n 1 -o getfasta.out -e getfasta.err -R span[hosts=1] -q q2680v2 "bedtools getfasta -fi /public/home/jingwzhou/genome/CSGL/wheat.CSGL.fa -bed ./APR-DR-MR_Bp_1Kb.bed > ./APR-DR-MR_Bp.fasta;\
+bsub  -J samtools -n 1 -o getfasta.out -e getfasta.err -R span[hosts=1] -q q2680v2 "bedtools getfasta -fi ~/CSGL/wheat.CSGL.fa -bed ./APR-DR-MR_Bp_1Kb.bed > ./APR-DR-MR_Bp.fasta;\
 RNAfold --noGU --noconv --noPS -p -g < ./APR-DR-MR_Bp_60.fasta > APR-DR-MR_Bp_60.Energy.out;\
 rm *dp.ps"
 
-bsub  -J samtools -n 1 -o getfasta.out -e getfasta.err -R span[hosts=1] -q q2680v2 "bedtools getfasta -fi /public/home/jingwzhou/genome/CSGL/wheat.CSGL.fa -bed ./APR-DR-MR_CENrandom_200_1Kb.bed > ./APR-DR-MR_CENrandom_200.fasta;\
+bsub  -J samtools -n 1 -o getfasta.out -e getfasta.err -R span[hosts=1] -q q2680v2 "bedtools getfasta -fi ~/CSGL/wheat.CSGL.fa -bed ./APR-DR-MR_CENrandom_200_1Kb.bed > ./APR-DR-MR_CENrandom_200.fasta;\
 RNAfold --noGU --noconv --noPS -p -g < ./APR-DR-MR_CENrandom_200.fasta > APR-DR-MR_CENrandom_200.Energy.out;\
 rm *dp.ps"
