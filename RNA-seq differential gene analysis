@@ -1,0 +1,140 @@
+
+#####RNA-seq
+for i in `cat ~/RNA-seq/RawData/RNA.txt`
+do
+
+bsub -J RNA -n 10 -o 01_qc"$i"-%J.out -e 01_qc"$i"-%J.err -R span[hosts=1] -q smp "fastp -p -w 15 -l 30 -i ~/RNA-seq/RawData/"$i"_R1.fq.gz -I ~/RNA-seq/RawData/"$i"_R2.fq.gz -o ~/RNA-seq/00_qc/"$i"_clean.R1.fastq.gz -O ~/RNA-seq/00_qc/"$i"_clean.R2.fastq.gz -h ~/RNA-seq/00_qc/"$i".html;\
+
+#rRNAremove
+bowtie2 --very-sensitive-local --no-unal -I 1 -X 1000 -p 10 -x ~/wheat_rDNA/wheat_rDNA -1 ~/RNA-seq/00_qc/"$i"_clean.R1.fastq.gz -2 ~/RNA-seq/00_qc/"$i"_clean.R2.fastq.gz --un-conc-gz ~/RNA-seq/rDNA/"$i"_rRNAremoved.fq.gz 2>RNA_55-68_Map2rRNAStat.xls | samtools view -S -b -o ~/RNA-seq/rDNA/"$i"_rRNA.bam -;\
+
+#align
+STAR --genomeDir ~/CSGL \
+--readFilesIn ~/RNA-seq/00_qc/"$i"_clean.R1.fastq.gz  ~/RNA-seq/00_qc/"$i"_clean.R2.fastq.gz \
+--readFilesCommand zcat \
+--runThreadN 20 \
+--outSAMtype BAM SortedByCoordinate \
+--outFilterType BySJout \
+--outFileNamePrefix ~/RNA-seq/CSGL_STAR_RSEM/02_align/"$i"_ \
+--limitBAMsortRAM 5000000000 \
+--outSAMstrandField intronMotif \
+--alignIntronMin 20 \
+--alignIntronMax 12000 \
+--outReadsUnmapped Fastx \
+--outFilterMultimapNmax 10 \
+--outFilterMismatchNoverLmax 0.02 \
+--outFilterMultimapScoreRange 0 \
+--outFilterMatchNminOverLread 0.9\
+--quantMode TranscriptomeSAM GeneCounts;\
+
+samtools index -c -@ 10 ~/RNA-seq/CSGL_STAR_RSEM/02_RemovedAlign/"$i"_Aligned.sortedByCoord.out.bam;\
+
+samtools flagstat ~/RNA-seq/CSGL_STAR_RSEM/02_RemovedAlign/"$i"_Aligned.sortedByCoord.out.bam > ~/RNA-seq/CSGL_STAR_RSEM/05_flagstat/flagstat."$i".qc;\
+
+stringtie -p 20 -G ~/CSGL/wheat.CSGL.gene.gff3 -o ~/RNA-seq/CSGL_STAR_Stringtie/stringtie/"$i".gff3 ~/RNA-seq/CSGL_STAR_Stringtie/STAR/"$i"_Aligned.sortedByCoord.out.bam
+
+#featureCounts
+featureCounts -p -a ~/CSGL/wheat.CSGL.gene.gtf -o ~/RNA-seq/CSGL_STAR_RSEM/03_RemovedFeaturecounts/"$i"-gene_counts.txt -T 20 -t exon -g gene_id ~/RNA-seq/CSGL_STAR_RSEM/02_RemovedAlign/"$i"_Aligned.sortedByCoord.out.bam;
+
+bamCoverage -b ~/RNA-seq/CSGL_STAR_RSEM/06_RemovedRsem/"$i"_Aligned.sortedByCoord.out.bam --binSize 50 --normalizeUsing RPKM -p 8 -o RNA_"$i"_RPKM_50bin.bw"
+sleep 10
+done
+
+
+####Counts2TPM
+library(dplyr)
+library(data.table)
+count_turn <- function(exp_data,method){
+  use_data <- fread("./RNA_gene_counts.txt",data.table = F)
+  if (method == "TPM") {
+    result_value <- use_data
+    for (i in 3:ncol(use_data)) {
+      result <- round((use_data[,i]*1000*1000000)/(use_data[,2]*sum((use_data[,i]*1000/use_data[,2]))),3)
+      
+      result_value[,i] <- result
+    }
+    
+  }
+  result_value <- result_value %>% select(-Length)
+  return(result_value)
+}
+gene_exp_count <- fread("./RNA_gene_counts.txt",data.table = F)
+gene_exp_count <- gene_exp_count[!duplicated(gene_exp_count$gene_name),]
+use_count <- gene_exp_count[,-c(1:3)]
+rownames(use_count) <- gene_exp_count$gene_name
+tpm_result <- count_turn(exp_data = use_count,method = "TPM")
+write.table(tpm_result, file = 'RNA_gene_tpm.txt', sep = '\t', col.names = NA, quote = FALSE)
+
+
+#####DEG
+library(DESeq2)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+count_matrix <- read.table("RNA_gene_counts.txt",header = T,row.names = 1,sep = "\t",check.names = F,stringsAsFactors = FALSE)
+tpm_matrix <- read.table("RNA_gene_tpm.txt",header = T,row.names = 1,sep = "\t",check.names = F,stringsAsFactors = FALSE)
+group_list <- read.table("group_list.txt", sep = "\t")
+compare_groups <- read.table("compare_list.txt", row.names = 1, sep = "\t", header = TRUE, stringsAsFactors = FALSE)
+for (i in 1:nrow(compare_groups)) {  
+  #sub_data
+  group1 <- count_matrix[, group_list$V1[group_list[,2] == compare_groups[i,1]]]
+  group2 <- count_matrix[, group_list$V1[group_list[,2] == compare_groups[i,2]]]
+  count_merge <- cbind(group1, group2)
+  count_merge <- round(as.matrix(count_merge))
+  condition <- factor(c(as.character(rep("Treat", ncol(group1))),as.character(rep("Control", ncol(group2)))))
+  coldata <- data.frame(row.names = colnames(count_merge), condition)
+  dds <- DESeqDataSetFromMatrix(count_merge, coldata, design=~condition)
+  dds <- DESeq(dds)
+  res <- results(dds,alpha=0.05,contrast = c("condition","Treat","Control"))
+  temp_res <- as.data.frame(res) %>% mutate(significant = case_when(
+    res$padj <= 0.05 & res$log2FoldChange >= 1 ~ "Up",
+    res$padj <= 0.05 & res$log2FoldChange <= -1 ~ "Down",
+    TRUE ~ "none"))
+  group3 <- tpm_matrix[, group_list$V1[group_list[,2] == compare_groups[i,1]]]
+  group4 <- tpm_matrix[, group_list$V1[group_list[,2] == compare_groups[i,2]]]
+  tpm_merge <- cbind(group3, group4)
+  res_comb <- merge(as.data.frame(temp_res),as.data.frame(tpm_merge),by="row.names",sort=F)
+  write.csv(res_comb, file = paste0(compare_groups[i,1],"_vs_",compare_groups[i,2],"_tpm_all",".csv",sep = ""),row.names = F)
+  colnames(res_comb)[1] <- "ID"
+  res_final <- res_comb %>% 
+    filter(padj != "NA") %>%
+    filter_at(vars(colnames(tpm_merge)),any_vars(.>=1)) %>%
+    select(ID,colnames(tpm_merge),log2FoldChange,pvalue,padj,significant) %>%
+    arrange(desc(padj))
+  write.csv(res_final, file = paste0(compare_groups[i,1],"_vs_",compare_groups[i,2],"_tpm_filter_final",".csv",sep = ""),row.names = F)
+  png(paste0(compare_groups[i,1],"_vs_",compare_groups[i,2],"_bar_volcanoplot.png",sep = ""),height=585,width=962)
+  data_bar <- res_final[which(res_final$significant!="none"),]
+  data_label <- data_bar %>% group_by(significant) %>% summarise(count=n())
+  p1 <- ggplot()+geom_bar(data=res_final[which(res_final$significant!="none"),],aes(x=significant,fill=significant))+
+    geom_text(data=data_label,aes(x=significant,y=count+500,label=count),position=position_dodge(.9),family="serif")+
+    labs(title = "DiffExp Genes Statistics",y="Number of Genes",x="")+
+    scale_fill_manual(values = c("#2f5688","#CC0000"))+
+    theme_bw()+
+    theme(plot.title = element_text(family = "serif",hjust = 0.5,face="bold",size=26,color="black"),
+          panel.grid = element_blank(),
+          legend.position = "none",
+          axis.title = element_text(family = "serif",face="bold",size=26,color="black"),
+          axis.text = element_text(family = "serif",size=22,color="black"),
+          panel.border = element_rect(colour = "black",fill = NA,size = 1.5))
+  p2 <- ggplot(data=res_final, aes(x=log2FoldChange, y =-log10(padj),color =significant)) +
+    geom_point(size=3) +
+    scale_color_manual(values =c("#2f5688","#BBBBBB","#CC0000"))+
+    geom_hline(yintercept = -log10(0.05),lty=5,lwd=0.8,alpha=0.5)+
+    geom_vline(xintercept = c(1,-1),lty=5,lwd=0.8,alpha=0.5)+
+    labs(title=paste0(compare_groups[i,1],"_vs_",compare_groups[i,2],sep = ""), x="log2(Fold change)",y="-log10 (p value)",color="DEG")+
+    theme_bw()+
+    theme(plot.title = element_text(family = "serif",hjust = 0.5,face="bold",size=26,color="black"),
+          legend.title =  element_text(family = "serif",size = 20,face="bold",color="black",hjust = 0.5),
+          legend.position = c(0.92,0.88),
+          legend.text = element_text(family = "serif",size = 16),
+          legend.background = element_blank(),
+          legend.box.background = element_rect(fill=NA,color = "black",linetype = 1),
+          panel.grid = element_blank(),
+          axis.title = element_text(family = "serif",face="bold",size=26,color="black"),
+          axis.text = element_text(family = "serif",size=22,color="black"),
+          panel.border = element_rect(colour = "black",fill = NA,size = 1.5))+
+    guides(color = guide_legend(override.aes = list(size=3))) 
+  p <- p1+p2+plot_layout(widths = c(1,2))
+  print(p)
+  dev.off()
+}
