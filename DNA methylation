@@ -1,0 +1,197 @@
+
+##bismark index
+bsub -J bismark -n 8 -o genome_preparation_%J.out -e genome_preparation_%J.err -R span[hosts=1] -q smp "bismark_genome_preparation --bowtie2 --path_to_aligner ~/miniconda3/bin/ --verbose ~/CSGL/bismark_ref2/ --large-index"
+
+##QC_mapping_dedupilcate
+for i in `cat ~/Methylome/mapping/remap_bismark.txt`
+ do
+
+bsub -J bismark -n 20 -o qc_map_rmdup-"$i"_%J.out -e qc_map_rmdup-"$i"_%J.err -R span[hosts=1] -q high -M 70G "trim_galore -q 20 --paired --length 30 --illumina "$i"_1.fastq.gz "$i"_2.fastq.gz --gzip -o public/home/jingwzhou/Data/Methylome/;\
+
+bismark ~/CSGL/bismark_ref2/ /public/home/jingwzhou/miniconda3/bin/ --bowtie2 -p 15 -N 1 -L 20  -1 ~/Methylome/"$i"_1.fq.gz -2 ~/Methylome/"$i"_2.fq.gz -o ~/Methylome/mapping/;\
+
+deduplicate_bismark -p ~/Methylome/mapping/"$i"_1_clean_bismark_bt2_pe.bam --output_dir ~/Methylome/rmdup/"
+
+sleep 10
+done
+
+bsub -J Me_cat -n 1 -o Me_cat-10.out -e Me_cat-10.err -R span[hosts=1] -q q2680v2 "samtools cat ./SRR6792673_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792681_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792684_1_clean_bismark_bt2_pe.deduplicated.bam -o cs_leaf10.final.bam"
+bsub -J Me_cat -n 1 -o Me_cat-10.out -e Me_cat-10.err -R span[hosts=1] -q q2680v2 "samtools index -c cs_leaf10.final.bam"
+
+bsub -J Me_cat -n 1 -o Me_cat-2.out -e Me_cat-2.err -R span[hosts=1] -q q2680v2 "samtools cat ./SRR6792675_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792682_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792683_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792685_1_clean_bismark_bt2_pe.deduplicated.bam -o cs_leaf2.final.bam;\
+samtools index -c cs_leaf2.final.bam"
+
+bsub -J Me_cat -n 1 -o Me_cat-6.out -e Me_cat-6.err -R span[hosts=1] -q q2680v2 "samtools cat ./SRR6792674_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792676_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792677_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792680_1_clean_bismark_bt2_pe.deduplicated.bam -o cs_leaf6.final.bam;\
+samtools index -c cs_leaf6.final.bam"
+
+bsub -J Me_cat -n 1 -o Me_cat-8.out -e Me_cat-8.err -R span[hosts=1] -q q2680v2 "samtools cat ./SRR6792678_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792679_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792686_1_clean_bismark_bt2_pe.deduplicated.bam -o cs_leaf8.final.bam;\
+samtools index -c cs_leaf8.final.bam"
+
+bsub -J Me_cat -n 1 -o Me_cat-9.out -e Me_cat-9.err -R span[hosts=1] -q q2680v2 "samtools cat ./SRR6792687_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792688_1_clean_bismark_bt2_pe.deduplicated.bam ./SRR6792689_1_clean_bismark_bt2_pe.deduplicated.bam -o cs_leaf9.final.bam;\
+samtools index -c cs_leaf9.final.bam"
+
+bsub -J extract -n 10 -o extractor_cs_leaf9_%J.out -e extractor_cs_leaf9_%J.err -R span[hosts=1] -q smp "samtools merge cs.merge.final.bam cs_leaf10.final.bam cs_leaf2.final.bam cs_leaf6.final.bam cs_leaf8.final.bam cs_leaf9.final.bam;\
+samtools index -c cs.merge.final.bam"
+
+
+##extractor
+bsub -J extract -n 15 -o extractor_cs_leaf10_%J.out -e extractor_cs_leaf10_%J.err -R span[hosts=1] -q smp "bismark_methylation_extractor -p --gzip --bedGraph --buffer_size 10G --cytosine_report --cx_context --genome_folder ~/CSGL/bismark_ref2/ ~/Methylome/rmdup/cs_leaf10.final.bam"
+
+bsub -J extract -n 5 -o extractor_cs_leaf2_%J.out -e extractor_cs_leaf2_%J.err -R span[hosts=1] -q smp "bismark_methylation_extractor -p --gzip --bedGraph --buffer_size 10G --cytosine_report --cx_context --genome_folder ~/CSGL/bismark_ref2/ ~/Methylome/rmdup/cs_leaf2.final.bam"
+
+bsub -J extract -n 30 -o extractor_cs_leaf6_%J.out -e extractor_cs_leaf6_%J.err -R span[hosts=1] -q smp "bismark_methylation_extractor -p --gzip --bedGraph --buffer_size 10G --cytosine_report --cx_context --genome_folder ~/CSGL/bismark_ref2/ ~/Methylome/rmdup/cs_leaf6.final.bam"
+
+bsub -J extract -n 30 -o extractor_cs_leaf8_%J.out -e extractor_cs_leaf8_%J.err -R span[hosts=1] -q smp "bismark_methylation_extractor -p --gzip --bedGraph --buffer_size 10G --cytosine_report --cx_context --genome_folder ~/CSGL/bismark_ref2/ ~/Methylome/rmdup/cs_leaf8.final.bam"
+
+bsub -J extract -n 30 -o extractor_cs_leaf9_%J.out -e extractor_cs_leaf9_%J.err -R span[hosts=1] -q smp "bismark_methylation_extractor -p --gzip --bedGraph --buffer_size 10G --cytosine_report --cx_context --genome_folder ~/CSGL/bismark_ref2/ ~/Methylome/rmdup/cs_leaf9.final.bam"
+
+bsub -J extract -n 30 -o extractor_cs_leaf9_%J.out -e extractor_cs_leaf9_%J.err -R span[hosts=1] -q smp "bismark_methylation_extractor -p --gzip --bedGraph --buffer_size 10G --cytosine_report --cx_context --genome_folder ~/CSGL/bismark_ref2/ ~/Methylome/rmdup/cs.merge.final.bam"
+
+#####extractor_CG_CHG_CHH
+#BSUB -J awk
+#BSUB -n 2
+#BSUB -R span[hosts=1]
+#BSUB -o awk%J.out
+#BSUB -e awk%J.err
+#BSUB -q smp
+
+gzip -d cs.merge_CG.final.CX_report.txt.gz > cs.merge_CG.final.CX_report.txt
+gzip -d cs.merge_CHG.final.CX_report.txt.gz > cs.merge_CHG.final.CX_report.txt
+gzip -d cs.merge_CHH.final.CX_report.txt.gz > cs.merge_CHH.final.CX_report.txt
+
+awk '{if ($6=="CG") print $0}'  cs.merge.final.CX_report.txt > cs.merge_CG.final.CX_report.txt.gz;\
+awk '{if ($6=="CHG") print $0}' cs.merge.final.CX_report.txt > cs.merge_CHG.final.CX_report.txt.gz;\
+awk '{if ($6=="CHH") print $0}' cs.merge.final.CX_report.txt > cs.merge_CHH.final.CX_report.txt.gz
+
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($6=="CG") print $1,$2,$3,$4+$5,$4,$5,$6,$7 }' ./cs.merge_CG_3.final.CX_report.txt > cs.merge_CG_3.bed
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($6=="CHG") print $1,$2,$3,$4+$5,$4,$5,$6,$7 }' ./cs.merge_CHG_3.final.CX_report.txt.gz > cs.merge_CHG_3.bed
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($6=="CHH") print $1,$2,$3,$4+$5,$4,$5,$6,$7 }' ./cs.merge_CHH_3.final.CX_report.txt.gz > cs.merge_CHH_3.bed
+
+######Calculate methylation rate
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($7=="CG") print $1,$2,$3,$5/$4,$7 }' ./cs.merge_CG_3.bed > cs.merge_CG_methylation_rate.bed
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($7=="CHG") print $1,$2,$3,$5/$4,$7 }' ./cs.merge_CHG_3.bed > cs.merge_CHG_methylation_rate.bed
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($7=="CHH") print $1,$2,$3,$5/$4,$7 }' ./cs.merge_CHH_3.bed > cs.merge_CHH_methylation_rate.bed
+
+###Prepare bed files
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($5=="CHH") print $1,$2,$2,$3,$4,$5 }' ./cs.merge_CHH_methylation_rate.bed > cs.merge_CHH_methylation_rate1.bed
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($5=="CHG") print $1,$2,$2,$3,$4,$5 }' ./cs.merge_CHG_methylation_rate.bed > cs.merge_CHG_methylation_rate1.bed
+awk -vFS='[\t=;]' -vOFS="\t" '{if ($5=="CG") print $1,$2,$2,$3,$4,$5 }' ./cs.merge_CG_methylation_rate.bed > cs.merge_CG_methylation_rate1.bed
+
+
+
+#BSUB -J methylation_rate_br_ra
+#BSUB -n 1
+#BSUB -R span[hosts=1]
+#BSUB -o methylation_rate_breakpoint_random%J.out
+#BSUB -e methylation_rate_breakpoint_random%J.err
+#BSUB -q normal
+####breakpoint
+awk '{if ($6 == "CHH" ) print $0}' cs.merge_CHH_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./breakpoint_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CHH_methylation_rate_breakpoint_1kb.txt
+awk '{if ($6 == "CHG" ) print $0}' cs.merge_CHG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./breakpoint_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CHG_methylation_rate_breakpoint_1kb.txt
+awk '{if ($6 == "CG" ) print $0}' cs.merge_CG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./breakpoint_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CG_methylation_rate_breakpoint_1kb.txt
+
+####Random interval within the centromere
+awk '{if ($6 == "CHH" ) print $0}' cs.merge_CHH_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./100_Random_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CHH_methylation_rate_100_Random_1kb.txt
+awk '{if ($6 == "CHG" ) print $0}' cs.merge_CHG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./100_Random_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CHG_methylation_rate_100_Random_1kb.txt
+awk '{if ($6 == "CG" ) print $0}' cs.merge_CG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./100_Random_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CG_methylation_rate_100_Random_1kb.txt
+
+####Random interval of arm
+awk '{if ($6 == "CHH" ) print $0}' cs.merge_CHH_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./100_ArmRandom_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CHH_methylation_rate_100_Arm_Random_1kb.txt
+awk '{if ($6 == "CHG" ) print $0}' cs.merge_CHG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./100_ArmRandom_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CHG_methylation_rate_100_Arm_Random_1kb.txt
+awk '{if ($6 == "CG" ) print $0}' cs.merge_CG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./100_ArmRandom_1kb.bed | awk '{if($NF ==R1) print $0}' > ./cs.merge_CG_methylation_rate_100_Arm_Random_1kb.txt
+
+#######Use aggregate to calculate the average in R 
+setwd("D:") 
+CpGrate_1kb <-read.table("./cs.merge_CG_methylation_rate_breakpoint_1kb.txt",header = TRUE)
+CHGrate_1kb <-read.table("./cs.merge_CHG_methylation_rate_breakpoint_1kb.txt",header = TRUE)
+CHHrate_1kb <-read.table("./cs.merge_CHH_methylation_rate_breakpoint_1kb.txt",header = TRUE)
+CpGrate_100Random_1kb <-read.table("./cs.merge_CG_methylation_rate_100_Random_1kb.txt",header = TRUE)
+CHGrate_100Random_1kb <-read.table("./cs.merge_CHG_methylation_rate_100_Random_1kb.txt",header = TRUE)
+CHHrate_100Random_1kb <-read.table("./cs.merge_CHH_methylation_rate_100_Random_1kb.txt",header = TRUE)
+CHHrate_100_Arm_Random_1kb <-read.table("./cs.merge_CHH_methylation_rate_100_Arm_Random_1kb.txt",header = TRUE)
+CHGrate_100_Arm_Random_1kb <-read.table("./cs.merge_CHG_methylation_rate_100_Arm_Random_1kb.txt",header = TRUE)
+CpGrate_100_Arm_Random_1kb <-read.table("./cs.merge_CG_methylation_rate_100_Arm_Random_1kb.txt",header = TRUE)
+
+number_CpGrate_1kb <- aggregate(CpGrate_1kb[,5],list(CpGrate_1kb[,7],CpGrate_1kb[,8]),mean)
+number_CHGrate_1kb <- aggregate(CHGrate_1kb[,5],list(CHGrate_1kb[,7],CHGrate_1kb[,8]),mean)
+number_CHHrate_1kb <- aggregate(CHHrate_1kb[,5],list(CHHrate_1kb[,7],CHHrate_1kb[,8]),mean)
+number_CpGrate_100Random_1kb <-aggregate(CpGrate_100Random_1kb[,5],list(CpGrate_100Random_1kb[,7],CpGrate_100Random_1kb[,8]),mean)
+number_CHGrate_100Random_1kb <-aggregate(CHGrate_100Random_1kb[,5],list(CHGrate_100Random_1kb[,7],CHGrate_100Random_1kb[,8]),mean)
+number_CHHrate_100Random_1kb <-aggregate(CHHrate_100Random_1kb[,5],list(CHHrate_100Random_1kb[,7],CHHrate_100Random_1kb[,8]),mean)
+number_CHHrate_100_Arm_Random_1kb <- aggregate(CHHrate_100_Arm_Random_1kb[,5],list(CHHrate_100_Arm_Random_1kb[,7],CHHrate_100_Arm_Random_1kb[,8]),mean)
+number_CHGrate_100_Arm_Random_1kb <- aggregate(CHGrate_100_Arm_Random_1kb[,5],list(CHGrate_100_Arm_Random_1kb[,7],CHGrate_100_Arm_Random_1kb[,8]),mean)
+number_CpGrate_100_Arm_Random_1kb <- aggregate(CpGrate_100_Arm_Random_1kb[,5],list(CpGrate_100_Arm_Random_1kb[,7],CpGrate_100_Arm_Random_1kb[,8]),mean)
+
+write.table(number_CpGrate_31BP_1kb,file = "number_CpGrate_1kb.txt",row.names = F,quote=F,sep="\t")
+write.table(number_CHGrate_31BP_1kb,file = "number_CHGrate_1kb.txt",row.names = F,quote=F,sep="\t")
+write.table(number_CHHrate_31BP_1kb,file = "number_CHHrate_1kb.txt",row.names = F,quote=F,sep="\t")
+write.table(number_CpGrate_100Random_1kb,file = "number_CpGrate_100Random_1kb",row.names = F,quote=F,sep="\t")
+write.table(number_CHGrate_100Random_1kb,file = "number_CHGrate_100Random_1kb",row.names = F,quote=F,sep="\t")
+write.table(number_CHHrate_100Random_1kb,file = "number_CHHrate_100Random_1kb",row.names = F,quote=F,sep="\t")
+write.table(number_CHHrate_100_Arm_Random_1kb,file = "number_CHHrate_100_Arm_Random_1kb.txt",row.names = F,quote=F,sep="\t")
+write.table(number_CHGrate_100_Arm_Random_1kb,file = "number_CHGrate_100_Arm_Random_1kb.txt",row.names = F,quote=F,sep="\t")
+write.table(number_CpGrate_100_Arm_Random_1kb,file = "number_CpGrate_100_Arm_Random_1kb.txt",row.names = F,quote=F,sep="\t")
+
+
+#BSUB -J CG_CHH_CHG
+#BSUB -n 1
+#BSUB -R span[hosts=1]
+#BSUB -o CG_methylation_rate_10kb%J.out
+#BSUB -e CG_methylation_rate_10kb%J.err
+#BSUB -q q2680v2
+awk '{if ($1 == "chr4A" ) print $0}' ../../cs.merge_CG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4A.txt | awk '{if($1 == "chr4A") print $0}' > ./CG_methylation_chr4A_rate_10kb.txt
+awk '{if ($1 == "chr4B" ) print $0}' ../../cs.merge_CG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4B.txt | awk '{if($1 == "chr4B") print $0}' > ./CG_methylation_chr4B_rate_10kb.txt
+awk '{if ($1 == "chr4D" ) print $0}' ../../cs.merge_CG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4D.txt | awk '{if($1 == "chr4D") print $0}' > ./CG_methylation_chr4D_rate_10kb.txt
+
+awk '{if ($1 == "chr4A" ) print $0}' ../../cs.merge_CHG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4A.txt | awk '{if($1 == "chr4A") print $0}' > ./CHG_methylation_chr4A_rate_10kb.txt
+awk '{if ($1 == "chr4B" ) print $0}' ../../cs.merge_CHG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4B.txt | awk '{if($1 == "chr4B") print $0}' > ./CHG_methylation_chr4B_rate_10kb.txt
+awk '{if ($1 == "chr4D" ) print $0}' ../../cs.merge_CHG_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4D.txt | awk '{if($1 == "chr4D") print $0}' > ./CHG_methylation_chr4D_rate_10kb.txt
+
+awk '{if ($1 == "chr4A" ) print $0}' ../../cs.merge_CHH_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4A.txt | awk '{if($1 == "chr4A") print $0}' > ./CHH_methylation_chr4A_rate_10kb.txt
+awk '{if ($1 == "chr4B" ) print $0}' ../../cs.merge_CHH_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4B.txt | awk '{if($1 == "chr4B") print $0}' > ./CHH_methylation_chr4B_rate_10kb.txt
+awk '{if ($1 == "chr4D" ) print $0}' ../../cs.merge_CHH_methylation_rate1.bed | bedtools closest -D ref -t all -mdb all  -a stdin -b ./CS_CENH3_10kb_ReadsCounts_chr4D.txt | awk '{if($1 == "chr4D") print $0}' > ./CHH_methylation_chr4D_rate_10kb.txt
+
+bedtools intersect -a CG_methylation_chr4A_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CG_PeirCENandCEN_chr4A_10kb.txt
+bedtools intersect -a CG_methylation_chr4B_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CG_PeirCENandCEN_chr4B_10kb.txt
+bedtools intersect -a CG_methylation_chr4D_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CG_PeirCENandCEN_chr4D_10kb.txt
+bedtools intersect -a CHG_methylation_chr4A_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CHG_PeirCENandCEN_chr4A_10kb.txt
+bedtools intersect -a CHG_methylation_chr4B_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CHG_PeirCENandCEN_chr4B_10kb.txt
+bedtools intersect -a CHG_methylation_chr4D_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CHG_PeirCENandCEN_chr4D_10kb.txt
+bedtools intersect -a CHH_methylation_chr4A_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CHH_PeirCENandCEN_chr4A_10kb.txt
+bedtools intersect -a CHH_methylation_chr4B_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CHH_PeirCENandCEN_chr4B_10kb.txt
+bedtools intersect -a CHH_methylation_chr4D_rate_10kb.txt -b ./CS_PeirCENandCEN.bed > CHH_PeirCENandCEN_chr4D_10kb.txt
+
+#######Use aggregate to calculate the average in R 
+setwd("~/Methylome/extractor/CS_merge/CX_GZ/CG/10kb_bin") 
+########CHH
+CHH_methylation_chr4A <-read.table("./CHH_PeirCENandCEN_chr4A_10kb.txt",header = TRUE)
+CHH_methylation_chr4B <-read.table("./CHH_PeirCENandCEN_chr4B_10kb.txt",header = TRUE)
+CHH_methylation_chr4D <-read.table("./CHH_PeirCENandCEN_chr4D_10kb.txt",header = TRUE)
+number_CHH_methylation_chr4A <- aggregate(CHH_methylation_chr4A[,5],list(CHH_methylation_chr4A[,7],CHH_methylation_chr4A[,8]),mean)
+number_CHH_methylation_chr4B <- aggregate(CHH_methylation_chr4B[,5],list(CHH_methylation_chr4B[,7],CHH_methylation_chr4B[,8]),mean)
+number_CHH_methylation_chr4D <- aggregate(CHH_methylation_chr4D[,5],list(CHH_methylation_chr4D[,7],CHH_methylation_chr4D[,8]),mean)
+write.table(number_CHH_methylation_chr4A,file = "./number_CHH_methylation_chr4A_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+write.table(number_CHH_methylation_chr4B,file = "./number_CHH_methylation_chr4B_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+write.table(number_CHH_methylation_chr4D,file = "./number_CHH_methylation_chr4D_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+######CG
+CG_methylation_chr4A <-read.table("./CG_PeirCENandCEN_chr4A_10kb.txt",header = TRUE)
+CG_methylation_chr4B <-read.table("./CG_PeirCENandCEN_chr4B_10kb.txt",header = TRUE)
+CG_methylation_chr4D <-read.table("./CG_PeirCENandCEN_chr4D_10kb.txt",header = TRUE)
+number_CG_methylation_chr4A <- aggregate(CG_methylation_chr4A[,5],list(CG_methylation_chr4A[,7],CG_methylation_chr4A[,8]),mean)
+number_CG_methylation_chr4B <- aggregate(CG_methylation_chr4B[,5],list(CG_methylation_chr4B[,7],CG_methylation_chr4B[,8]),mean)
+number_CG_methylation_chr4D <- aggregate(CG_methylation_chr4D[,5],list(CG_methylation_chr4D[,7],CG_methylation_chr4D[,8]),mean)
+write.table(number_CG_methylation_chr4A,file = "./number_CG_methylation_chr4A_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+write.table(number_CG_methylation_chr4B,file = "./number_CG_methylation_chr4B_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+write.table(number_CG_methylation_chr4D,file = "./number_CG_methylation_chr4D_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+######CHG
+CHG_methylation_chr4A <-read.table("./CHG_PeirCENandCEN_chr4A_10kb.txt",header = TRUE)
+CHG_methylation_chr4B <-read.table("./CHG_PeirCENandCEN_chr4B_10kb.txt",header = TRUE)
+CHG_methylation_chr4D <-read.table("./CHG_PeirCENandCEN_chr4D_10kb.txt",header = TRUE)
+number_CHG_methylation_chr4A <- aggregate(CHG_methylation_chr4A[,5],list(CHG_methylation_chr4A[,7],CHG_methylation_chr4A[,8]),mean)
+number_CHG_methylation_chr4B <- aggregate(CHG_methylation_chr4B[,5],list(CHG_methylation_chr4B[,7],CHG_methylation_chr4B[,8]),mean)
+number_CHG_methylation_chr4D <- aggregate(CHG_methylation_chr4D[,5],list(CHG_methylation_chr4D[,7],CHG_methylation_chr4D[,8]),mean)
+write.table(number_CHG_methylation_chr4A,file = "./number_CHG_methylation_chr4A_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+write.table(number_CHG_methylation_chr4B,file = "./number_CHG_methylation_chr4B_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+write.table(number_CHG_methylation_chr4D,file = "./number_CHG_methylation_chr4D_10kb.txt",row.names = F,col.names = F,quote=F,sep="\t")
+
+
