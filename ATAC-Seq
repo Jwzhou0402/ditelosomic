@@ -1,0 +1,254 @@
+
+########ATAC-Seq
+cut -f 3 ../meta/ATAC-seq.txt | sort | uniq > ../meta/SRX.list
+awk -vOFS="\t" '{a[$2]=$3;if(!($2~/_control/)){b[$2]=$1;}} \
+END{for(i in b){print b[i],i,a[i],a[i"_control"]}}' \
+../meta/ATAC-seq.txt | sort -k 1 -k 2 \
+> ../meta/macs2.meta
+
+#fq_align_rmdup_index_normalize
+cut -f 1 ~/ATAC/RawData/ATAC-seq.txt | while read i; do
+FQ=~/ATAC/RawData
+QC=~/ATAC/CSGL/new_ATAC0722/qc
+BAM=~/ATAC/CSGL/new_ATAC0722/align
+FINAL=~/ATAC/CSGL/new_ATAC0722/rmdup
+
+bsub -J fastp -n 8 -o ./report_"$i"-%J.out -e ./report_"$i"-%J.err -R span[hosts=1] -q high "fastp -p -w 15 -l 30 -i $FQ/"$i"_R1.fq.gz -I $FQ/"$i"_R2.fq.gz -o $QC/"$i"_clean.R1.fastq.gz -O $QC/"$i"_clean.R2.fastq.gz -h $QC/"$i".html;\
+
+bowtie2 --no-unal --threads 20 --sensitive -k 3 -q --phred33 --rg-id '"$i"_R1_"$i"_R2' --rg 'SM:"$i"_R1_"$i"_R2\tPL:Illumina\tLB:Illumina_1_8' -x ~/CSGL/bowtie2-build/wheat.CSGL -1 $QC/"$i"_clean.R1.fastq.gz -2 $QC/"$i"_clean.R2.fastq.gz | awk '{if(\$0~/^@/||\$5>=20) {print \$0}}' | ~/miniconda3/bin/samtools sort -@ 20 -o $BAM/"$i"_mapq20_sort.bam;\
+
+java -jar /public/home/jingwzhou/miniconda3/share/picard-2.27.1-0/picard.jar MarkDuplicates \
+      I= $BAM/"$i"_mapq20_sort.bam \
+      O= $BAM/"$i"_mapq20_sort_dupmark.bam \
+   REMOVE_DUPLICATES=true \
+      M= $BAM/marked_dup_metrics.txt;\
+samtools view -@ 8 -F 1804 -b $BAM/"$i"_mapq20_sort_dupmark.bam > $FINAL/"$i".final.bam;\
+
+samtools index -c $FINAL/"$i".final.bam;\
+
+bamCoverage -b ~/ATAC/CSGL/new_ATAC0722/align/"$i".final.bam --binSize 150 --normalizeUsing RPKM -p 8 -o "$i"_RPKM_150bin.bw;\
+
+rm $BAM/"$i"_mapq20_sort_dupmark.bam"
+
+sleep 10
+done
+
+
+##merge_readcounts
+for sample in /*_rep1.bam; do
+index=$(basename $sample |sed 's/_rep1.bam//')
+prefix=$(dirname $sample)
+bsub  -J perl -n 1 -o ReadsCounts-${index}-%J.out -e ReadsCounts-${index}-%J.err -R span[hosts=1] "samtools merge ${index}_rep0.bam ${index}_rep1.bam ${index}_rep2.bam;\
+
+samtools index -c ${index}_rep0.bam;\
+
+bamToBed -i ./${index}_rep0.bam | sort -k 1,1 -k 2,2n > ./${index}_rep0.bed;\
+
+perl ./bed2-100Kb_wheat_CSGL.pl ${prefix}/${index}_rep0.bed ./${index}_100kb_ReadsCounts.txt;\
+
+perl ./bed2-10Kb_wheat_CSGL.pl ${prefix}/${index}_rep0.bed ./${index}_10kb_ReadsCounts.txt;\
+
+perl ./bed2-1Kb_wheat_CSGL.pl ${prefix}/${index}_rep0.bed ./${index}_1kb_ReadsCounts.txt
+
+bamCoverage -b ~/ATAC/CSGL/new_ATAC0722/align/"$i"_rep0.bam --binSize 10 --normalizeUsing RPKM -p 10 -o "$i"_rep0_RPKMnormalized.bw"
+done
+
+
+#MACS2-on-individual-replicates
+#BSUB -J MACS2
+#BSUB -n 10
+#BSUB -R span[hosts=1]
+#BSUB -o ./report/07_CallPeak-%J.out
+#BSUB -e ./report/07_CallPeak-%J.err
+#BSUB -q q2680v2
+
+cat ~/ATAC/CSGL/new_ATAC0722/meta/macs2.meta | while read TF Rep  Trmt Ctrl  j v l m; do
+ATAC=~/ATAC/CSGL/new_ATAC0722/align/$Trmt.final.bam
+Ctrl=~/ATAC/CSGL/new_ATAC0722/align/${TF}_control.bam
+OUT=${Rep}
+[[ ! -f chrom.sizes ]] && samtools view -H $ATAC | \
+awk -vOFS="\t"  '(/^@SQ/){match($0,/SN:(\w+)/,SN); match($0,/LN:([0-9]+)/,LN);print SN[1],LN[1]}'> chrom.sizes
+GS=$(awk 'BEGIN{GS=0}{GS+=$2}END{print int(0.85*GS)}' chrom.sizes)
+[[ ! -f ${OUT}.peaks.bed ]] && \ 
+macs2 callpeak -f BAM -t $ATAC -n ${OUT} -g $GS -p 1e-2 --mfold 2 20 --shift -75 --extsize 150 --nomodel --to-large;
+maxS=$(sort -k 5gr,5gr ${OUT}_peaks.narrowPeak | head -n 1 | cut -f 5);
+minS=$(sort -k 5gr,5gr ${OUT}_peaks.narrowPeak | tail -n 1 | cut -f 5);
+awk -vOFS='\t' -vm=$minS -vM=$maxS '{$5=int((($5-m)*(1000-10)/(M-m))+10); print}' ${OUT}_peaks.narrowPeak > ${OUT}.peaks.bed; \
+bedToBigBed -type=bed6+4 ${OUT}.peaks.bed chrom.sizes ./signal/${OUT}.peaks.bb; 
+done
+
+
+#IDR_originalReplicates
+for sample in ./*_rep1.peaks.bed; do
+index=$(basename $sample |sed 's/_rep1.peaks.bed//')
+prefix=$(dirname $sample)
+bsub -J ${index} -n 8 -o %J.${index}.out -e %J.${index}.err -R span[hosts=1] "idr --samples ${prefix}/${index}_rep1.peaks.bed ${prefix}/${index}_rep2.peaks.bed --output-file ${prefix}/${index}_final.peaks.txt --plot"
+sleep 10
+done
+
+
+#TSS_scale-regions
+#BSUB -J tss
+#BSUB -n 2
+#BSUB -R span[hosts=1]
+#BSUB -o TSS%J.out
+#BSUB -e TSS%J.err
+#BSUB -q q2680v2
+
+BED=~//TSS_TES_Plot/Up_Down_gene_bed
+BW=~/ATAC/CSGL/Valuation/DeeptoolsView/rep0_RPKMnormalized-bw
+
+computeMatrix scale-regions -p 2 -S $BW/CS_rep0_50bp_RPKM.bw  $BW/CSDT_1AL_rep0_50bp_RPKM.bw -R $BED/wheat.CSGL_Dt1AL_Up_gene_HC.bed -b 3000 -a 3000 --regionBodyLength 5000 --skipZeros -o Dt1AL_Up_scale-regions.mat.gz;\
+
+computeMatrix scale-regions -p 2 -S $BW/CS_rep0_50bp_RPKM.bw  $BW/CSDT_1AL_rep0_50bp_RPKM.bw -R $BED/wheat.CSGL_Dt1AL_Down_gene_HC.bed -b 3000 -a 3000 --regionBodyLength 5000 --skipZeros -o Dt1AL_Down_scale-regions.mat.gz;\
+
+plotProfile --dpi 720 -m Dt1AL_Up_scale-regions.mat.gz -out Dt1AL_Up_scale-regions.profile.pdf --plotFileFormat pdf --perGroup;\
+plotHeatmap --dpi 720 -m Dt1AL_Up_scale-regions.mat.gz -out Dt1AL_Up_scale-regions.merge.pdf --plotFileFormat pdf
+
+plotProfile --dpi 720 -m Dt1AL_Down_scale-regions.mat.gz -out Dt1AL_Down_scale-regions.profile.pdf --plotFileFormat pdf --perGroup;\
+plotHeatmap --dpi 720 -m Dt1AL_Down_scale-regions.mat.gz -out Dt1AL_Down_scale-regions.merge.pdf --plotFileFormat pdf
+
+
+
+######Analysis of differentially accessible chromatin regions(DARs)
+cut -f 1 ~/ATAC/CSGL/meta/ATAC-seq.txt | while read i; do
+bsub -J bam2bw -n 2 -o ./margedpeaks"$i"%J.out -e ./margedpeaks"$i"%J.err -R span[hosts=1] -q normal "cat ~/ATAC/CSGL/final/"$i".peaks.bed ~/ATAC/CSGL/final/CS.peaks.bed | sort -k1,1 -k2n,2 | bedtools merge -i - -c 4 -o collapse > ~/ATAC/CSGL/DiffBind/Merged_Peak/CS_"$i".marged.peaks.bed;\
+awk '{print $4"\t"$1"\t"$2"\t"$3"\t"$6}' CS_"$i".marged.peaks.bed > CS_"$i".marged.peaks.saf"
+done
+
+#featurecount
+awk '(!/_control/){print $1, $3}' ~/ATAC/CSGL/meta/macs2.meta | while read i j ; do
+bsub -J featureCounts -n 8 -o Counts"$j"-%J.out -e Counts"$j"-%J.err -R span[hosts=1] -q q2680v2 "featureCounts -p -P -B -C -T 4 \
+ -a CS_"$i".marged.peaks.saf \
+ -F SAF \
+ -o "$j"_counts_subread.txt \
+ ~/ATAC/CSGL/02_align/"$j".final.bam"
+done
+
+
+library(ggplot2)
+library(patchwork)
+library(DESeq2)
+library(dplyr)
+
+coldata  <- read.csv("airway_metadata_Dt.csv")
+countdata <- read.csv("CS-Dt_counts_subread1.csv")
+countdata <- as.data.frame(countdata)
+coldata <- as.data.frame(coldata)
+class(countdata)
+class(coldata)
+names(countdata)[-1]
+coldata$id
+names(countdata)[-1]==coldata$id
+all(names(countdata)[-1]==coldata$id)
+coldata$condition <- factor(coldata$condition, levels = c("CS", "Dt"))
+dds <- DESeqDataSetFromMatrix(countData=countdata, 
+                              colData=coldata, 
+                              design=~condition, 
+                              tidy=TRUE)
+dds <- dds[rowSums(counts(dds)) > 1,]  
+nrow(dds)  
+dep <- DESeq(dds)
+res <- results(dep,independentFiltering=FALSE) 
+diff = res
+diff1 <- as.data.frame(diff)
+write.csv(diff1,"CS_Dt_peakcounts_diff11.csv") 
+diff_2 <- diff1[order(diff1$padj, diff1$log2FoldChange, decreasing = c(FALSE, TRUE)), ]
+diff_2[which(diff_2$log2FoldChange >= 1 & diff_2$padj < 0.01),'sig'] <- 'up'
+diff_2[which(diff_2$log2FoldChange <= -1 & diff_2$padj < 0.01),'sig'] <- 'down'
+diff_2[which(abs(diff_2$log2FoldChange) <= 1 | diff_2$padj >= 0.01),'sig'] <- 'none'
+write.csv(diff_2,"CS_Dt_peakcounts_diff_Up_none_Down.csv") 
+diff2_select <- subset(diff_2, sig %in% c('up', 'down'))
+write.table(diff2_select, file = './diff_select/CS_Dt_peakcounts_diff_select.txt', sep = '\t', col.names = NA, quote = FALSE)
+
+png('CS_Dt_peakcounts_diff.png', units="in", width=4, height=3, res=600)
+p1 <- ggplot(data = diff_2, aes(x = log2FoldChange, y = -log10(padj), color = sig)) + 
+  geom_point(size = 0.4) + 
+  scale_color_manual(values = c('#CD4E34', 'gray', '#6EAC8B'), limits = c('up', 'none', 'down')) + 
+  labs(x = 'log2 Fold Change', y = '-log10(padj)', title = 'Dt VS CS', color = '') + 
+  theme(plot.title = element_text(hjust = 0.5, size = 6), 
+        panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(fill = 'transparent'),
+        axis.text.x = element_text(size = 6), 
+        axis.text.y = element_text(size = 6),
+        axis.title.x = element_text(size = 9), 
+        axis.title.y = element_text(size = 9)) + 
+  geom_vline(xintercept = c(-1, 1), lty = 3, color = 'black') + 
+  geom_hline(yintercept = 2, lty = 3, color = 'black') + 
+  xlim(-12, 12) + ylim(0, 50) + 
+  guides(color = FALSE)
+data_bar <- diff2_select[which(diff2_select$sig!="none"),]
+data_label <- data_bar %>% group_by(sig) %>% summarise(count=n())
+p2 <- ggplot()+geom_bar(data=diff2_select[which(diff2_select$sig!="none"),],aes(x=sig,fill=sig))+ 
+  geom_text(data=data_label,aes(x=sig,y=count+500,label=count),position=position_dodge(.9),family="serif")+ 
+  labs(title = "DiffExp Genes Statistics",y="Number of Genes",x="")+
+  scale_fill_manual(values = c("#6EAC8B","#CC0000"))+  
+  theme_bw()+
+  theme(plot.title = element_text(family = "serif",hjust = 0.5,face="bold",size=6,color="black"),
+        panel.grid = element_blank(),
+        legend.position = "none",
+        axis.title = element_text(family = "serif",face="bold",size=3,color="black"),
+        axis.text = element_text(family = "serif",size = 3, color = "black"),
+        panel.border = element_rect(colour = "black",fill = NA,size = 0.5),
+        axis.text.x = element_text(size = 6), 
+        axis.text.y = element_text(size = 6),
+        axis.title.x = element_text(size = 9), 
+        axis.title.y = element_text(size = 9))
+
+p <- p2+p1+plot_layout(widths = c(1,1.5))
+print(p)
+dev.off()
+
+
+####Counts2TPM_gene or peaks
+library(dplyr)
+library(data.table)
+count_turn <- function(exp_data,method){
+  use_data <- fread("./CS-Dt_counts_subread1.txt",data.table = F)
+  if (method == "TPM") {
+    result_value <- use_data
+    for (i in 3:ncol(use_data)) {
+      result <- round((use_data[,i]*1000*1000000)/(use_data[,2]*sum((use_data[,i]*1000/use_data[,2]))),3)
+      
+      result_value[,i] <- result
+    }
+    
+  }
+  result_value <- result_value %>% select(-Length)
+  return(result_value)
+}
+gene_exp_count <- fread("./CS-Dt_counts_subread1.txt",data.table = F)
+gene_exp_count <- gene_exp_count[!duplicated(gene_exp_count$gene_name),]
+use_count <- gene_exp_count[,-c(1:3)]
+rownames(use_count) <- gene_exp_count$gene_name
+tpm_result <- count_turn(exp_data = use_count,method = "TPM")
+write.table(tpm_result, file = 'CS-Dt_counts_subread1_tpm.txt', sep = '\t', col.names = NA, quote = FALSE)
+
+
+###Annotation of DARs
+library(ChIPseeker)
+library(GenomicFeatures)
+library(ggupset)
+library(tidyverse)
+spompe <- makeTxDbFromGFF('./wheat.CSGL.gene.gff3')
+setwd("D:/ATAC/CSGL-Q20/annotation")
+peak1 <- readPeakFile("./Centromere_Pericen_diffPeak.bed")
+peak2 <- readPeakFile("./peri_centromeric_radndom_control.bed")
+peaks <- list(peak1 = peak1, peak2 = peak2)
+peaks <- list(peak1 = peak1, peak2 = peak2)
+pdf(paste0("Centromere_Pericen_diffPeak_vs_control.pdf"))
+peakAnnoList <- lapply(peaks, annotatePeak, TxDb = spompe, tssRegion = c(-5000, 5000), addFlankGeneInfo = TRUE, flankDistance = 5000)
+covplot(peak,weightCol=5)
+promoter <- getPromoters(TxDb=spompe, upstream=1500, downstream=1500)
+tagMatrix1 <- getTagMatrix(peak, windows=promoter)
+plotAvgProf(tagMatrix1, xlim=c(-1500, 1500), conf=0.95,resample = 1000, xlab="Genomic Region (5'->3')", ylab = paste0("Centromere_Pericen_diffPeak"))
+plotAnnoPie(peakAnno1)
+plotAnnoBar(peakAnno1)
+vennpie(peakAnno1)
+upsetplot(peakAnno1)
+anno_out1=as.data.frame(peakAnno1)
+write.table(peakAnnoList[1], file = 'Centromere_Pericen_diffPeak.txt',sep = '\t', quote = FALSE, row.names = FALSE)
+write.table(peakAnnoList[2], file = 'peri_centromeric_radndom_control.txt',sep = '\t', quote = FALSE, row.names = FALSE)
+dev.off()
+print(paste0())
