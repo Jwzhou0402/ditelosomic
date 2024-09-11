@@ -1,0 +1,93 @@
+
+######WW_SS
+bsub -J bam2bed -n 5 -R span[hosts=1] -o bam2bed.out -e bam2bed.err -q normal "bamToBed -i ~/CHIP_seq/CENH3/03_Rmdup/final_CENH3/CS.final.bam > CS-CSGL.bed"
+bsub -J bam2bed -n 5 -R span[hosts=1] -o bam2bed_Dt6BL.out -e bam2bed_Dt6BL.err -q normal "bamToBed -i ~/CHIP_seq/CENH3/03_Rmdup/final_CENH3/Dt6BL.final.bam > Dt6BL-CSGL.bed"
+
+bsub -J perl -n 1 -R span[hosts=1] -o perl.out -e perl.err -q normal "perl ./format_bedPE2Frag.pl -i CS-CSGL.bed -o CS-CSGL.bedPE"
+
+bsub -J perl -n 1 -R span[hosts=1] -o perl.out -e perl.err -q normal "perl ./format_bedPE2Frag.pl -i Dt6BL-CSGL.bed -o Dt6BL-CSGL.bedPE"
+
+less Dt6BL-CSGL.bedPE | cut -f 1,2,3,5,6 | less > Dt6BL-CSGL.nucleR
+less CS-CSGL.bedPE | cut -f 1,2,3,5,6 | less > CS-CSGL.nucleR
+
+less Dt6BL-CSGL.nucleR | awk '{if ($1 == "chr6B") print $0}' > Dt6BL-CSGL_chr6B.nucleR
+less CS-CSGL.nucleR | awk '{if ($1 == "chr6B") print $0}' > CS-CSGL_chr6B.nucleR
+
+less CS-CSGL_chr6B.nucleR | awk '{if($1~/chr6B/ && $2>=347247275 && $3<=348786174) {print $0}}' | less | awk '{s1=$2-347247275; s2=$3-347247275; print $1"\t"s1"\t"s2"\t"$4"\t"$5"\t"$6}' | less > CS-CSGL_cen6B.nucleR
+less Dt6BL-CSGL_chr6B.nucleR | awk '{if($1~/chr6B/ && $2>=347247275 && $3<=348786174) {print $0}}' | less | awk '{s1=$2-347247275; s2=$3-347247275; print $1"\t"s1"\t"s2"\t"$4"\t"$5"\t"$6}' | less > Dt6BL-CSGL_cen6B.nucleR
+
+#
+#R
+library(nucleR)
+setwd("E:")
+library(nucleR)
+library(IRanges)
+library(GenomicRanges)
+
+Dt6BL_cen6B <-read.table("./Dt6BL-CSGL_cen6B.nucleR",header = TRUE)
+CS_cen6B <-read.table("./CS-CSGL_cen6B.nucleR",header = TRUE)
+
+colnames(Dt6BL_cen6B) <- c("seqnames", "start", "end","width","strand")
+colnames(CS_cen6B) <- c("seqnames", "start", "end","width","strand")
+
+Dt6BL_cen6B <-GRangesList(GRanges(Dt6BL_cen6B))
+CS_cen6B <- GRangesList(GRanges(CS_cen6B))
+
+CS_cen6B <-CS_cen6B[[1]]
+Dt6BL_cen6B <-Dt6BL_cen6B[[1]]
+
+CS_cen6B_trim <-processReads(CS_cen6B, type="paired", fragmentLen=200,trim=40)
+Dt6BL_cen6B_trim <-processReads(Dt6BL_cen6B, type="paired", fragmentLen=200,trim=40)
+
+CS_cen6B_cover_trim <-coverage.rpm(CS_cen6B_trim)
+Dt6BL_cen6B_cover_trim <-coverage.rpm(Dt6BL_cen6B_trim)
+
+CS_cen6B_cover_trim_htseq_raw = as.vector(CS_cen6B_cover_trim[[1]])
+Dt6BL_cen6B_cover_trim_htseq_raw = as.vector(Dt6BL_cen6B_cover_trim[[1]])
+
+CS_cen6B_cover_trim_htseq_fft = filterFFT(CS_cen6B_cover_trim_htseq_raw,pcKeepComp = 0.03)
+Dt6BL_cen6B_cover_trim_htseq_fft = filterFFT(Dt6BL_cen6B_cover_trim_htseq_raw,pcKeepComp = 0.03)
+
+cor(CS_cen6B_cover_trim_htseq_raw,CS_cen6B_cover_trim_htseq_fft,use = "complete.obs")
+cor(Dt6BL_cen6B_cover_trim_htseq_raw,Dt6BL_cen6B_cover_trim_htseq_fft,use = "complete.obs")
+
+
+CS_cen6B_cover_trim_peaks = peakDetection(CS_cen6B_cover_trim_htseq_fft,threshold = "25%",score = TRUE,width = 3)
+Dt6BL_cen6B_cover_trim_peaks = peakDetection(Dt6BL_cen6B_cover_trim_htseq_fft,threshold = "25%",score = TRUE,width = 3)
+
+CS_cen6B_cover_trim_peaks_nuc_calls = CS_cen6B_cover_trim_peaks[CS_cen6B_cover_trim_peaks$score > 0.2,]
+Dt6BL_cen6B_cover_trim_peaks_nuc_calls = Dt6BL_cen6B_cover_trim_peaks[Dt6BL_cen6B_cover_trim_peaks$score > 0.2,]
+
+#
+res <- data.frame(chr=rep('chr6B',length(CS_cen6B_cover_trim_peaks_nuc_calls@ranges@start)),
+                  start=CS_cen6B_cover_trim_peaks_nuc_calls@ranges@start,
+                  end=CS_cen6B_cover_trim_peaks_nuc_calls@ranges@start+3,
+                  width=rep(3,length(CS_cen6B_cover_trim_peaks_nuc_calls@ranges@start)),
+                  strand=rep('+',length(CS_cen6B_cover_trim_peaks_nuc_calls@ranges@start)))
+write.table(res,'CS_cen6B_nucl.1.bed',sep = '\t',quote = F,
+            row.names = F)
+
+res1 <- data.frame(chr=rep('chr6B',length(Dt6BL_cen6B_cover_trim_peaks_nuc_calls@ranges@start)),
+                                      start=Dt6BL_cen6B_cover_trim_peaks_nuc_calls@ranges@start,
+                                      end=Dt6BL_cen6B_cover_trim_peaks_nuc_calls@ranges@start+3,
+                                      width=rep(3,length(Dt6BL_cen6B_cover_trim_peaks_nuc_calls@ranges@start)),
+                                      strand=rep('+',length(Dt6BL_cen6B_cover_trim_peaks_nuc_calls@ranges@start)))
+write.table(res1,'Dt6BL_cen6B_nucl.1.bed',sep = '\t',quote = F,
+                        row.names = F)
+
+less CS_cen6BL_nucl.1.bed | awk 's1=$2+347247275, s2=$3+347247275 {print "chr6B\t"s1"\t"s2"\t""chr6B_"$4"\t"$5}' | less > CS_cen6BL_nucl.tmp.bed
+less Dt6BL_cen6BL_nucl.1.bed | awk 's1=$2+347247275, s2=$3+347247275 {print "chr6B\t"s1"\t"s2"\t""chr6B_"$4"\t"$5}' | less > Dt6BL_cen6BL_nucl.tmp.bed
+
+bsub -J perl -n 1 -R span[hosts=1] -o perl_fetch_seq.out -e perl_fetch_seq.err -M 100G -q smp "perl ./fetch_seq_bed.pl -i Dt6BL_cen6BL_nucl.tmp.bed -d ~/CSGL/wheat.CSGL.fa -o Dt6BL_cen6BL_nucl.tmp.fa -l 199 -r 199"
+bsub -J perl -n 1 -R span[hosts=1] -o perl_fetch_seq.out -e perl_fetch_seq.err -M 100G -q smp "perl ./fetch_seq_bed.pl -i CS_cen6BL_nucl.tmp.bed -d ~/CSGL/wheat.CSGL.fa -o CS_cen6BL_nucl.tmp.fa -l 199 -r 199"
+
+bsub -J perl -n 1 -R span[hosts=1] -o perl_distribution_nucl.out -e perl_distribution_nucl.err -q normal "perl ./distribution_nucleotide_di.pl -i CS_cen6BL_nucl.tmp.fa -o CS_cen6BL_nucl.tmp.fa.pos"
+bsub -J perl -n 1 -R span[hosts=1] -o perl_distribution_nucl.out -e perl_distribution_nucl.err -q normal "perl ./distribution_nucleotide_di.pl -i Dt6BL_cen6BL_nucl.tmp.fa -o Dt6BL_cen6BL_nucl.tmp.fa.pos"
+
+#heatmap
+library(pheatmap)
+library(ggplot2)
+library(readxl)
+X1 <- read_excel("D:/2023/ZJW/1.xlsx")
+View(X1)
+p <- pheatmap(X1)
