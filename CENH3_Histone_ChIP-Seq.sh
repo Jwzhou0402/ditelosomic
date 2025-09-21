@@ -104,7 +104,7 @@ library(ggsignif)
 library(tidyverse)
 library(ggprism)
 
-#Fig4E_TelocentricOther
+#TelocentricOther
 df1 <- read.delim("./TelocentricOther.txt")
 pdf('Fig4E_TelocentricOther.pdf', width=3.2, height=2.3)
 p1 <-ggplot(df1,aes(x=group,y=values))+
