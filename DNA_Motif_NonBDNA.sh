@@ -1,4 +1,3 @@
-
 #####01_bwa index
 bsub -J fastp -n 8 -o 01_index-%J.out -e 01_index-%J.err -R span[hosts=1] "bwa index -a bwtsw wheat.CSGL.fa"
 
